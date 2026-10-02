@@ -92,7 +92,94 @@ const countStatus=s=>leads.filter(l=>l.status===s).length;
 function viewDashboard(){const total=leads.length,clients=countStatus('Cliente'),conv=total?Math.round(clients/total*100):0,nicheCounts=NICHES.map(n=>[n,leads.filter(l=>l.niche===n).length]);const follow=leads.filter(l=>l.next_followup_at).sort((a,b)=>new Date(a.next_followup_at)-new Date(b.next_followup_at)).slice(0,6);return `<div class="grid kpis">${[['Leads',total],['Novos',countStatus('Novo')],['Contatados',countStatus('Contatado')],['Responderam',countStatus('Respondeu')],['Demos',countStatus('Demonstração')],['Clientes',clients],['Conversão',conv+'%']].map(x=>`<div class="card kpi"><span>${x[0]}</span><b>${x[1]}</b></div>`).join('')}</div><div class="grid two" style="margin-top:16px"><div class="card section"><h3>Leads por nicho</h3>${nicheCounts.map(([n,c])=>`<div style="margin:13px 0"><div style="display:flex;justify-content:space-between"><span>${esc(n)}</span><b>${c}</b></div><div class="progress"><span style="width:${total?c/total*100:0}%"></span></div></div>`).join('')}</div><div class="card section"><h3>Atalhos</h3><div class="actions"><button class="btn primary" data-go="buscar">Buscar leads</button><button class="btn" onclick="pb.openLead()">Novo lead</button><button class="btn" onclick="document.getElementById('csvFile').click()">Importar CSV</button><button class="btn" data-go="mensagens">Mensagens</button></div><div class="note" style="margin-top:16px">O WhatsApp é aberto com a mensagem pronta, mas o envio sempre depende de você.</div></div></div><div class="grid two" style="margin-top:16px"><div class="card section"><h3>Atividades recentes</h3>${activities.length?`<div class="list">${activities.slice(0,8).map(a=>`<div class="row"><div><b>${esc(activityName(a))}</b><div class="small muted">${esc(a.details?.lead_name||'')} · ${new Date(a.created_at).toLocaleString('pt-BR')}</div></div></div>`).join('')}</div>`:'<div class="empty">Nenhuma atividade ainda.</div>'}</div><div class="card section"><h3>Próximos follow-ups</h3>${follow.length?`<div class="list">${follow.map(l=>`<div class="row"><div><b>${esc(l.name)}</b><div class="small muted">${new Date(l.next_followup_at).toLocaleString('pt-BR')}</div></div><button class="btn" onclick="pb.wa('${l.id}')">WhatsApp</button></div>`).join('')}</div>`:'<div class="empty">Nenhum follow-up agendado.</div>'}</div></div>`}
 function viewSearch(){return `<div class="card section"><div class="form-grid"><div class="field"><label>Cidade</label><input id="s_city" class="input" value="São José do Rio Preto"></div><div class="field"><label>UF</label><input id="s_state" class="input" value="SP" maxlength="2"></div><div class="field"><label>Segmento</label><select id="s_niche" class="select">${NICHES.map(n=>`<option>${n}</option>`).join('')}</select></div><div class="field"><label>Raio</label><select id="s_radius" class="select"><option value="3000">3 km</option><option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option><option value="30000">30 km</option></select></div></div><div class="actions" style="margin-top:14px"><button class="btn primary" onclick="pb.search()">Buscar empresas</button><button class="btn" onclick="pb.filter('phone')">Só com telefone</button><button class="btn ghost" onclick="pb.filter('all')">Todos</button></div><div class="note" style="margin-top:14px">A busca usa dados públicos do OpenStreetMap. A cobertura de telefone varia por cidade e nenhum número é inventado.</div></div><div class="card section" style="margin-top:16px"><h3>Resultados</h3><div id="searchStatus" class="muted small"></div><div id="searchResults">${renderSearchResults()}</div></div>`}
 function renderSearchResults(){let arr=[...searchResults];if(searchFilter==='phone')arr=arr.filter(x=>x.phone||x.whatsapp);if(!arr.length)return '<div class="empty">Faça uma busca para encontrar empresas.</div>';return arr.map((r,i)=>`<div class="search-result"><div class="titleline"><div><b>${esc(r.name)}</b><div class="lead-meta">${esc(r.niche)} · ${esc(r.city||'')} ${esc(r.state||'')}</div></div>${r.phone||r.whatsapp?'<span class="badge green">telefone</span>':'<span class="badge">sem telefone</span>'}</div><div class="lead-meta" style="margin-top:8px">${esc(r.address||'')}${r.phone?`<br>☎ ${esc(r.phone)}`:''}${r.whatsapp?`<br>WhatsApp: ${esc(r.whatsapp)}`:''}${r.website?`<br>🌐 ${esc(r.website)}`:''}</div><div class="actions" style="margin-top:10px"><button class="btn primary" onclick="pb.addSearch(${i})">Adicionar aos leads</button></div></div>`).join('')}
-async function searchBusinesses(){const city=$('#s_city').value.trim(),stateCode=$('#s_state').value.trim().toUpperCase(),niche=$('#s_niche').value,radius=Number($('#s_radius').value);const st=$('#searchStatus');st.textContent='Buscando negócios públicos...';const {data,error}=await sb.functions.invoke('search-businesses',{body:{city,state:stateCode,niche,radius}});if(error){st.textContent='Erro na busca.';toast(error.message);return}if(data?.error){st.textContent=data.error;return}searchResults=data?.results||[];st.textContent=`${searchResults.length} negócios encontrados.`;$('#searchResults').innerHTML=renderSearchResults()}
+
+function osmTagsToLead(el,requestedNiche,city,stateCode){
+  const t=el.tags||{},name=(t.name||t.brand||'').trim();if(!name)return null;
+  const phone=String(t['contact:phone']||t.phone||t['contact:mobile']||'').trim();
+  const whatsapp=String(t['contact:whatsapp']||'').trim();
+  const website=String(t['contact:website']||t.website||'').trim();
+  const instagram=String(t['contact:instagram']||t.instagram||'').trim();
+  const address=[t['addr:street'],t['addr:housenumber'],t['addr:suburb']||t['addr:neighbourhood']].filter(Boolean).join(', ');
+  const hair=String(t.hairdresser||'').toLowerCase(),beauty=String(t.beauty||'').toLowerCase(),low=name.toLowerCase();
+  let niche=requestedNiche;
+  if(t.shop==='hairdresser')niche=(hair.includes('barber')||/barbearia|barber/.test(low))?'Barbearia':'Cabeleireiro';
+  else if(t.shop==='beauty')niche=(/(nail|unha|manicure|esmalteria)/.test(low)||/(nails|manicure|pedicure)/.test(beauty))?'Manicure / Nail Designer':'Salão Completo';
+  return {name,phone,whatsapp,website,instagram,address,city:t['addr:city']||city,state:t['addr:state']||stateCode,niche,latitude:el.lat??el.center?.lat??null,longitude:el.lon??el.center?.lon??null,source:'OpenStreetMap'};
+}
+function segmentMatches(el,niche){
+  const t=el.tags||{},name=String(t.name||t.brand||'').toLowerCase(),hair=String(t.hairdresser||'').toLowerCase(),beauty=String(t.beauty||'').toLowerCase();
+  if(niche==='Manicure / Nail Designer')return /(nail|unha|manicure|esmalteria)/.test(name)||/(nails|manicure|pedicure)/.test(beauty);
+  if(niche==='Barbearia')return hair.includes('barber')||/barbearia|barber/.test(name);
+  if(niche==='Cabeleireiro')return t.shop==='hairdresser'&&!hair.includes('barber')&&!/barbearia|barber/.test(name);
+  return t.shop==='beauty'||t.shop==='hairdresser';
+}
+async function fetchTimeout(url,opts={},ms=15000){
+  const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),ms);
+  try{return await fetch(url,{...opts,signal:ctl.signal})}finally{clearTimeout(tm)}
+}
+async function browserGeocode(city,stateCode){
+  const u=new URL('https://nominatim.openstreetmap.org/search');
+  u.searchParams.set('format','json');u.searchParams.set('limit','1');u.searchParams.set('countrycodes','br');u.searchParams.set('q',city+', '+stateCode+', Brasil');
+  const r=await fetchTimeout(u.toString(),{headers:{'Accept-Language':'pt-BR','Accept':'application/json'}},10000);
+  if(!r.ok)throw new Error('Não consegui localizar a cidade.');
+  const a=await r.json();if(!Array.isArray(a)||!a[0])throw new Error('Cidade não encontrada.');
+  const lat=Number(a[0].lat),lon=Number(a[0].lon);if(!Number.isFinite(lat)||!Number.isFinite(lon))throw new Error('Coordenadas inválidas.');
+  return {lat,lon};
+}
+function makeBrowserQuery(niche,radius,lat,lon){
+  const around='(around:'+radius+','+lat+','+lon+')';
+  if(niche==='Manicure / Nail Designer')return '[out:json][timeout:15];nwr["shop"="beauty"]'+around+';out center tags 120;';
+  if(niche==='Barbearia'||niche==='Cabeleireiro')return '[out:json][timeout:15];nwr["shop"="hairdresser"]'+around+';out center tags 160;';
+  return '[out:json][timeout:15];(nwr["shop"="beauty"]'+around+';nwr["shop"="hairdresser"]'+around+';);out center tags 200;';
+}
+async function browserOverpass(query){
+  const eps=['https://overpass-api.de/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+  let last='';
+  for(const ep of eps){
+    try{
+      const r=await fetchTimeout(ep,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json'},body:'data='+encodeURIComponent(query)},16000);
+      if(!r.ok){last='HTTP '+r.status;continue}
+      const d=await r.json();if(Array.isArray(d&&d.elements))return d.elements;
+    }catch(e){last=e&&e.name==='AbortError'?'tempo esgotado':String((e&&e.message)||e)}
+  }
+  throw new Error(last||'Nenhuma fonte pública respondeu.');
+}
+async function browserBusinessSearch(city,stateCode,niche,radius){
+  const geo=await browserGeocode(city,stateCode),query=makeBrowserQuery(niche,radius,geo.lat,geo.lon),els=await browserOverpass(query);
+  const arr=[],seen=new Set();
+  for(const el of els){
+    if(!segmentMatches(el,niche))continue;
+    const r=osmTagsToLead(el,niche,city,stateCode);if(!r)continue;
+    const key=(digits(r.phone||r.whatsapp)||((r.name||'')+'|'+(r.address||'')+'|'+(r.city||'')).toLowerCase());
+    if(seen.has(key))continue;seen.add(key);arr.push(r);
+  }
+  return arr;
+}
+async function searchBusinesses(){
+  const city=$('#s_city').value.trim(),stateCode=$('#s_state').value.trim().toUpperCase(),niche=$('#s_niche').value,radius=Number($('#s_radius').value),st=$('#searchStatus');
+  if(!city||!stateCode){st.textContent='Informe cidade e UF.';return}
+  st.textContent='Buscando negócios públicos...';searchResults=[];$('#searchResults').innerHTML='<div class="empty">Consultando OpenStreetMap...</div>';
+  try{
+    searchResults=await browserBusinessSearch(city,stateCode,niche,radius);
+    st.textContent=searchResults.length?(searchResults.length+' negócio'+(searchResults.length===1?'':'s')+' encontrado'+(searchResults.length===1?'':'s')+' no OpenStreetMap.'):'Nenhum cadastro desse segmento foi encontrado nessa fonte pública para o raio escolhido.';
+    $('#searchResults').innerHTML=renderSearchResults();
+    return;
+  }catch(clientErr){
+    st.textContent='Tentando fonte de reserva...';
+  }
+  try{
+    const invoke=sb.functions.invoke('search-businesses',{body:{city,state:stateCode,niche,radius}});
+    const timeout=new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),12000));
+    const res=await Promise.race([invoke,timeout]),data=res&&res.data,error=res&&res.error;
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    searchResults=(data&&data.results)||[];
+    st.textContent=searchResults.length?(searchResults.length+' negócios encontrados.'):'Nenhum cadastro encontrado nessa fonte pública.';
+    $('#searchResults').innerHTML=renderSearchResults();
+  }catch(e){
+    searchResults=[];st.textContent='As fontes públicas estão temporariamente ocupadas. Tente novamente em alguns instantes.';
+    $('#searchResults').innerHTML=renderSearchResults();
+  }
+}
 async function addSearchLead(i){const r=searchResults[i];if(!r)return;const p=digits(r.phone||r.whatsapp);const dup=leads.some(l=>(p&&digits(l.phone||l.whatsapp)===p)||(!p&&l.name.toLowerCase()===r.name.toLowerCase()&&(l.city||'')===(r.city||'')));if(dup){toast('Esse lead já está cadastrado.');return}const row={user_id:user.id,name:r.name,niche:r.niche,phone:r.phone||'',whatsapp:r.whatsapp||'',instagram:r.instagram||'',website:r.website||'',address:r.address||'',city:r.city||'',state:r.state||'',latitude:r.latitude,longitude:r.longitude,source:'OpenStreetMap',status:'Novo'};const {data,error}=await sb.from('leads').insert(row).select().single();if(error){toast(error.message);return}leads.unshift(data);await logActivity('Lead adicionado',data);toast('Lead adicionado.')}
 function viewLeads(){return `<div class="card section"><div class="actions" style="justify-content:space-between"><div class="actions"><input id="leadQuery" class="input" style="width:260px" placeholder="Buscar por nome ou cidade" oninput="pb.refreshLeads()"><select id="leadStatusFilter" class="select" style="width:190px" onchange="pb.refreshLeads()"><option value="">Todos os status</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select></div><div class="actions"><button class="btn" onclick="pb.exportCSV()">Exportar CSV</button><button class="btn" onclick="document.getElementById('csvFile').click()">Importar CSV</button></div></div><div class="table-wrap" style="margin-top:14px"><table class="table"><thead><tr><th>Negócio</th><th>Nicho</th><th>Telefone</th><th>Cidade</th><th>Status</th><th>Ações</th></tr></thead><tbody id="leadTableBody"></tbody></table></div></div>`}
 function statusClass(s){return s==='Cliente'?'green':s==='Respondeu'||s==='Demonstração'?'blue':s==='Não interessado'||s==='Não contatar'?'red':s==='Proposta'?'purple':s==='Contatado'?'amber':''}
