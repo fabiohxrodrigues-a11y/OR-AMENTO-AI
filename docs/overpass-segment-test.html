@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>Teste Segmento</title><pre id="o">iniciando...</pre>
+<script>
+const o=document.getElementById('o'), ep='https://overpass-api.de/api/interpreter';
+const qs=[
+['estrito','[out:json][timeout:12];(nwr["shop"="beauty"]["beauty"~"nails|manicure|pedicure",i](around:10000,-20.8113,-49.3758);nwr["shop"="beauty"]["name"~"nail|unha|manicure|esmalteria",i](around:10000,-20.8113,-49.3758););out center tags 100;'],
+['beleza','[out:json][timeout:12];nwr["shop"="beauty"](around:10000,-20.8113,-49.3758);out center tags 100;']
+];
+(async()=>{let logs=[];for(const [n,q] of qs){try{const c=new AbortController();const t=setTimeout(()=>c.abort(),15000);const r=await fetch(ep,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(q),signal:c.signal});clearTimeout(t);logs.push(n+' status='+r.status);if(r.ok){const d=await r.json();logs.push(n+' elementos='+(d.elements||[]).length);for(const x of (d.elements||[]))logs.push(' - '+((x.tags||{}).name||'(sem nome)')+' | beauty='+((x.tags||{}).beauty||''));}}catch(e){logs.push(n+' erro '+e)}o.textContent=logs.join('\n')}})();
+</script>
