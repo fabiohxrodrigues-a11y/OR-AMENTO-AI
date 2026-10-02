@@ -94,22 +94,24 @@ function viewSearch(){return `<div class="card section"><div class="form-grid"><
 
 function normalizeText(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
 function confidenceRank(v){return v==='Alta'?3:v==='Média'?2:1}
+
 function renderSearchResults(){
   let arr=searchResults.map((r,idx)=>({r,idx}));
   if(searchFilter==='phone')arr=arr.filter(x=>x.r.phone||x.r.whatsapp);
   arr.sort((a,b)=>Number(!!(b.r.phone||b.r.whatsapp))-Number(!!(a.r.phone||a.r.whatsapp))||confidenceRank(b.r.segment_confidence)-confidenceRank(a.r.segment_confidence)||String(a.r.name).localeCompare(String(b.r.name),'pt-BR'));
   if(!arr.length)return '<div class="empty">'+(searchResults.length?'Nenhum dos resultados atuais possui telefone público.':'Faça uma busca para encontrar empresas.')+'</div>';
-  return arr.map(x=>{
-    const r=x.r,idx=x.idx,hasPhone=!!(r.phone||r.whatsapp);
+  const top='<div class="actions" style="margin-bottom:12px"><button class="btn" onclick="pb.addAllSearch()">Adicionar todos os resultados</button><span class="small muted">'+arr.length+' exibidos</span></div>';
+  return top+arr.map(x=>{
+    const r=x.r,idx=x.idx,hasPhone=!!(r.phone||r.whatsapp),knownPhone=!hasPhone&&r.has_phone;
     const conf=r.segment_confidence||'A confirmar';
-    const confClass=conf==='Alta'?'green':conf==='Média'?'amber':'';
+    const confClass=(conf==='Alta')?'green':(conf==='Média'?'amber':'');
     const source=r.source||'Fonte pública';
     const contact=(r.address?esc(r.address):'')+(r.cnpj?'<br>CNPJ: '+esc(r.cnpj):'')+(r.phone?'<br>☎ '+esc(r.phone):'')+(r.whatsapp?'<br>WhatsApp: '+esc(r.whatsapp):'')+(r.email?'<br>✉ '+esc(r.email):'')+(r.website?'<br>🌐 '+esc(r.website):'');
     const sourceLink=r.source_url?'<a href="'+esc(r.source_url)+'" target="_blank" rel="noopener">ver fonte</a>':'';
-    return '<div class="search-result"><div class="titleline"><div><b>'+esc(r.name)+'</b><div class="lead-meta">'+esc(r.niche)+' · '+esc(r.city||'')+' '+esc(r.state||'')+'</div></div><div class="actions">'+(hasPhone?'<span class="badge green">telefone</span>':'<span class="badge">sem telefone</span>')+'<span class="badge '+confClass+'">'+esc(conf)+'</span></div></div><div class="lead-meta" style="margin-top:8px">'+contact+'<br>Fonte: '+esc(source)+(sourceLink?' · '+sourceLink:'')+'</div><div class="actions" style="margin-top:10px"><button class="btn primary" onclick="pb.addSearch('+idx+')">Adicionar aos leads</button></div></div>';
+    const phoneBadge=hasPhone?'<span class="badge green">telefone público</span>':knownPhone?'<span class="badge blue">telefone cadastrado</span>':'<span class="badge">sem telefone</span>';
+    return '<div class="search-result"><div class="titleline"><div><b>'+esc(r.name)+'</b><div class="lead-meta">'+esc(r.niche)+' · '+esc(r.city||'')+' '+esc(r.state||'')+'</div></div><div class="actions">'+phoneBadge+'<span class="badge '+confClass+'">'+esc(conf)+'</span></div></div><div class="lead-meta" style="margin-top:8px">'+contact+'<br>Fonte: '+esc(source)+(sourceLink?' · '+sourceLink:'')+'</div><div class="actions" style="margin-top:10px"><button class="btn primary" onclick="pb.addSearch('+idx+')">Adicionar aos leads</button>'+(!hasPhone?'<button class="btn" onclick="pb.contactSearch('+idx+')">Pesquisar contato</button>':'')+'</div></div>';
   }).join('');
 }
-
 function osmTagsToLead(el,requestedNiche,city,stateCode){
   const t=el.tags||{},name=(t.name||t.brand||'').trim();if(!name)return null;
   const phone=String(t['contact:phone']||t.phone||t['contact:mobile']||'').trim();
@@ -283,52 +285,68 @@ async function getCityIbgeCode(city,stateCode){
   if(!hit)throw new Error('Município não localizado no IBGE.');
   return String(hit.id);
 }
+
 function baseEmpToLead(x,requestedNiche,city,stateCode){
-  const a=x.address||{},ct=x.contact||{},main=x.main_cnae||{};
-  const name=(x.trade_name||x.corporate_name||'').trim();if(!name)return null;
+  const a=x.address||{},ct=x.contact||{},mainCode=String(x.main_cnae?.code||x.main_cnae||'');
+  const name=(x.trade_name||x.corporate_name||('CNPJ '+(x.full_cnpj||''))).trim();if(!name)return null;
   const address=[a.street_type,a.street,a.number,a.neighborhood].filter(Boolean).join(' ');
-  const tn=normText(name),mn=normText(main.name||'');
-  let niche=requestedNiche, confidence='CNAE';
-  if(/barbearia|barber/.test(tn)){niche='Barbearia';confidence='Nome fantasia'}
-  else if(/manicure|nail|unha|esmalteria|pedicure/.test(tn)){niche='Manicure / Nail Designer';confidence='Nome fantasia'}
-  else if(/cabeleireiro|cabelo|hair/.test(tn)){niche='Cabeleireiro';confidence='Nome fantasia'}
-  else if(/salao|salão|beleza|estetica|estética/.test(tn)){niche='Salão Completo';confidence='Nome fantasia'}
+  const tn=normText(name);
+  let niche=requestedNiche,confidence='CNAE 9602-5/01';
+  if(/barbearia|barber/.test(tn)){niche='Barbearia';confidence='Alta'}
+  else if(/manicure|nail|unha|esmalteria|pedicure/.test(tn)){niche='Manicure / Nail Designer';confidence='Alta'}
+  else if(/cabeleireiro|cabelo|hair/.test(tn)){niche='Cabeleireiro';confidence='Alta'}
+  else if(/salao|salão|beleza|estetica|estética/.test(tn)){niche='Salão Completo';confidence='Média'}
   return {
     name,
     phone:ct.phone_1||'',
     whatsapp:'',
+    email:ct.email||'',
     website:'',
     instagram:'',
     address,
-    city:(a.city&&a.city.name)||city,
-    state:(a.state&&a.state.abbreviation)||stateCode,
+    city,
+    state:stateCode,
     niche,
     latitude:null,longitude:null,
     source:'Base Empresarial / Receita Federal',
-    source_detail:'CNPJ '+(x.cnpj||x.full_cnpj||'')+' · CNAE '+(main.code||'9602501'),
+    source_url:'https://app.baseempresarial.com.br',
     has_phone:!!ct.has_phone,
     has_email:!!ct.has_email,
     segment_confidence:confidence,
     cnpj:x.cnpj||x.full_cnpj||'',
-    registration_status:(x.registration_status&&x.registration_status.label)||'',
-    activity_start_date:x.activity_start_date||''
+    registration_status:(x.registration_status&&((x.registration_status.label)||(x.registration_status.name)))||'',
+    activity_start_date:x.activity_start_date||'',
+    main_cnae:mainCode
   };
 }
 async function baseEmpSearch(city,stateCode,requestedNiche){
-  const code=await getCityIbgeCode(city,stateCode);
-  const params=new URLSearchParams();
-  params.set('filter[city_ibge_code]',code);
-  params.set('filter[uf_abbreviation]',stateCode.toUpperCase());
-  params.set('filter[registration_status]','02');
-  params.set('filter[cnae_code]','9602501');
-  params.set('per_page','100');
-  params.set('page','1');
-  params.set('include','city,state');
-  const url='https://app.baseempresarial.com.br/api/v1/establishments?'+params.toString();
-  const r=await fetchTimeout(url,{headers:{'Accept':'application/json'}},15000);
-  if(!r.ok)throw new Error('Base Empresarial '+r.status);
-  const d=await r.json(),out=[];
-  for(const x of (d.data||[])){const l=baseEmpToLead(x,requestedNiche,city,stateCode);if(l)out.push(l)}
+  const code=await getCityIbgeCode(city,stateCode),out=[],seen=new Set();
+  let pagesScanned=0;
+  for(let page=1;page<=8&&out.length<80;page++){
+    const params=new URLSearchParams();
+    params.set('filter[city_ibge_code]',code);
+    params.set('per_page','100');
+    params.set('page',String(page));
+    params.set('sort','-activity_start_date');
+    let url='https://app.baseempresarial.com.br/api/v1/establishments?'+params.toString();
+    let r=await fetchTimeout(url,{headers:{Accept:'application/json'}},12000);
+    if(r.status===400&&page===1){
+      params.delete('sort'); url='https://app.baseempresarial.com.br/api/v1/establishments?'+params.toString();
+      r=await fetchTimeout(url,{headers:{Accept:'application/json'}},12000);
+    }
+    if(!r.ok)break;
+    const d=await r.json(),rows=d.data||[];pagesScanned++;
+    if(!rows.length)break;
+    for(const x of rows){
+      if(String(x.registration_status?.code||'')!=='02')continue;
+      if(String(x.main_cnae?.code||x.main_cnae||'')!=='9602501')continue;
+      const k=String(x.full_cnpj||x.id||'');if(seen.has(k))continue;seen.add(k);
+      const l=baseEmpToLead(x,requestedNiche,city,stateCode);if(l)out.push(l);
+    }
+    if(!d.links?.next)break;
+    await new Promise(res=>setTimeout(res,120));
+  }
+  out._pagesScanned=pagesScanned;
   return out;
 }
 function mergeSearchResults(a,b,requestedNiche){
@@ -380,6 +398,24 @@ async function searchBusinesses(){
   }
   $('#searchResults').innerHTML=renderSearchResults();
   if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
+}
+
+function searchPublicContact(i){
+  const r=searchResults[i];if(!r)return;
+  const q=[r.name,r.city,r.state,'telefone WhatsApp Instagram'].filter(Boolean).join(' ');
+  window.open('https://www.google.com/search?q='+encodeURIComponent(q),'_blank','noopener');
+}
+async function addAllSearch(){
+  let added=0,skipped=0;
+  for(let i=0;i<searchResults.length;i++){
+    const r=searchResults[i],p=digits(r.phone||r.whatsapp),cnpj=String(r.cnpj||'').trim();
+    const dup=leads.some(l=>(cnpj&&String(l.cnpj||'')===cnpj)||(p&&digits(l.phone||l.whatsapp)===p)||(!p&&!cnpj&&normalizeText(l.name)===normalizeText(r.name)&&normalizeText(l.city)===normalizeText(r.city)));
+    if(dup){skipped++;continue}
+    const row={user_id:user.id,name:r.name,niche:r.niche,phone:r.phone||'',whatsapp:r.whatsapp||'',email:r.email||'',cnpj,instagram:r.instagram||'',website:r.website||'',address:r.address||'',city:r.city||'',state:r.state||'',latitude:r.latitude,longitude:r.longitude,source:r.source||'Busca pública',source_url:r.source_url||'',segment_confidence:r.segment_confidence||'',status:'Novo'};
+    const {data,error}=await sb.from('leads').insert(row).select().single();
+    if(!error&&data){leads.unshift(data);added++}else skipped++;
+  }
+  render();toast(added+' leads adicionados'+(skipped?' · '+skipped+' ignorados/duplicados':'')+'.');
 }
 async function addSearchLead(i){
   const r=searchResults[i];if(!r)return;
@@ -460,7 +496,7 @@ async function logActivity(type,l){const {data}=await sb.from('activities').inse
 function exportCSV(){const heads=['name','owner_name','niche','phone','whatsapp','email','cnpj','city','state','status','instagram','website','address','notes','next_followup_at','do_not_contact','source','source_url','segment_confidence'];const rows=[heads.join(';')].concat(leads.map(l=>heads.map(h=>`"${String(l[h]??'').replaceAll('"','""')}"`).join(';')));const b=new Blob(['\ufeff'+rows.join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='prospecta-leads.csv';a.click();URL.revokeObjectURL(a.href)}
 function parseCSV(text){const sep=(text.split('\n')[0].match(/;/g)||[]).length>(text.split('\n')[0].match(/,/g)||[]).length?';':',';const rows=[];let row=[],cell='',q=false;for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(q&&text[i+1]==='"'){cell+='"';i++}else q=!q}else if(c===sep&&!q){row.push(cell);cell=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()!==''))rows.push(row);row=[];cell=''}else cell+=c}row.push(cell);if(row.some(x=>x.trim()!==''))rows.push(row);return rows}
 async function importCSV(ev){const file=ev.target.files[0];if(!file)return;const rows=parseCSV(await file.text());if(rows.length<2){toast('CSV vazio.');return}const head=rows[0].map(x=>x.trim().toLowerCase()),batch=[];for(const r of rows.slice(1)){const o={};head.forEach((h,i)=>o[h]=r[i]||'');if(!o.name)continue;const p=digits(o.phone||o.whatsapp);if(leads.some(l=>p&&digits(l.phone||l.whatsapp)===p))continue;batch.push({user_id:user.id,name:o.name,owner_name:o.owner_name||o.owner||'',niche:NICHES.includes(o.niche)?o.niche:'Salão Completo',phone:o.phone||'',whatsapp:o.whatsapp||'',email:o.email||'',cnpj:o.cnpj||'',city:o.city||'',state:(o.state||'').toUpperCase(),status:STATUSES.includes(o.status)?o.status:'Novo',instagram:o.instagram||'',website:o.website||'',address:o.address||'',notes:o.notes||'',next_followup_at:o.next_followup_at||o.followup||null,do_not_contact:String(o.do_not_contact||o.dnc).toLowerCase()==='true',source:o.source||'CSV',source_url:o.source_url||'',segment_confidence:o.segment_confidence||''})}if(!batch.length){toast('Nenhum lead novo para importar.');return}const {data,error}=await sb.from('leads').insert(batch).select();if(error){toast(error.message);return}leads=[...(data||[]),...leads];render();toast(`${data.length} leads importados.`);ev.target.value=''}
-window.pb={openLead:openLeadModal,close:closeModal,saveLead,del:deleteLead,wa:prepareWA,openWA:openWhatsApp,copyWA:copyWhatsApp,search:searchBusinesses,addSearch:addSearchLead,filter:f=>{searchFilter=f;const e=$('#searchResults');if(e)e.innerHTML=renderSearchResults()},refreshLeads:refreshLeadTable,saveTemplate,saveProduct,saveSettings,exportCSV};
+window.pb={openLead:openLeadModal,close:closeModal,saveLead,del:deleteLead,wa:prepareWA,openWA:openWhatsApp,copyWA:copyWhatsApp,search:searchBusinesses,addSearch:addSearchLead,addAllSearch,contactSearch:searchPublicContact,filter:f=>{searchFilter=f;const e=$('#searchResults');if(e)e.innerHTML=renderSearchResults()},refreshLeads:refreshLeadTable,saveTemplate,saveProduct,saveSettings,exportCSV};
 document.addEventListener('click',function(ev){const btn=ev.target.closest('[data-pb-search]');if(btn){ev.preventDefault();searchBusinesses();}});
 
 init();
