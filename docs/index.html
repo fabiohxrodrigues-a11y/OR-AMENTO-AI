@@ -271,28 +271,115 @@ async function enrichSearchContacts(seq){
     $('#searchResults').innerHTML=renderSearchResults();
   }
 }
+
+function normText(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()}
+async function getCityIbgeCode(city,stateCode){
+  const uf=stateCode.trim().toUpperCase();
+  const r=await fetchTimeout('https://servicodados.ibge.gov.br/api/v1/localidades/estados/'+encodeURIComponent(uf)+'/municipios',{},10000);
+  if(!r.ok)throw new Error('IBGE '+r.status);
+  const arr=await r.json(),target=normText(city);
+  let hit=arr.find(x=>normText(x.nome)===target);
+  if(!hit)hit=arr.find(x=>normText(x.nome).includes(target)||target.includes(normText(x.nome)));
+  if(!hit)throw new Error('Município não localizado no IBGE.');
+  return String(hit.id);
+}
+function baseEmpToLead(x,requestedNiche,city,stateCode){
+  const a=x.address||{},ct=x.contact||{},main=x.main_cnae||{};
+  const name=(x.trade_name||x.corporate_name||'').trim();if(!name)return null;
+  const address=[a.street_type,a.street,a.number,a.neighborhood].filter(Boolean).join(' ');
+  const tn=normText(name),mn=normText(main.name||'');
+  let niche=requestedNiche, confidence='CNAE';
+  if(/barbearia|barber/.test(tn)){niche='Barbearia';confidence='Nome fantasia'}
+  else if(/manicure|nail|unha|esmalteria|pedicure/.test(tn)){niche='Manicure / Nail Designer';confidence='Nome fantasia'}
+  else if(/cabeleireiro|cabelo|hair/.test(tn)){niche='Cabeleireiro';confidence='Nome fantasia'}
+  else if(/salao|salão|beleza|estetica|estética/.test(tn)){niche='Salão Completo';confidence='Nome fantasia'}
+  return {
+    name,
+    phone:ct.phone_1||'',
+    whatsapp:'',
+    website:'',
+    instagram:'',
+    address,
+    city:(a.city&&a.city.name)||city,
+    state:(a.state&&a.state.abbreviation)||stateCode,
+    niche,
+    latitude:null,longitude:null,
+    source:'Base Empresarial / Receita Federal',
+    source_detail:'CNPJ '+(x.cnpj||x.full_cnpj||'')+' · CNAE '+(main.code||'9602501'),
+    has_phone:!!ct.has_phone,
+    has_email:!!ct.has_email,
+    segment_confidence:confidence,
+    cnpj:x.cnpj||x.full_cnpj||'',
+    registration_status:(x.registration_status&&x.registration_status.label)||'',
+    activity_start_date:x.activity_start_date||''
+  };
+}
+async function baseEmpSearch(city,stateCode,requestedNiche){
+  const code=await getCityIbgeCode(city,stateCode);
+  const params=new URLSearchParams();
+  params.set('filter[city_ibge_code]',code);
+  params.set('filter[uf_abbreviation]',stateCode.toUpperCase());
+  params.set('filter[registration_status]','02');
+  params.set('filter[cnae_code]','9602501');
+  params.set('per_page','100');
+  params.set('page','1');
+  params.set('include','city,state');
+  const url='https://app.baseempresarial.com.br/api/v1/establishments?'+params.toString();
+  const r=await fetchTimeout(url,{headers:{'Accept':'application/json'}},15000);
+  if(!r.ok)throw new Error('Base Empresarial '+r.status);
+  const d=await r.json(),out=[];
+  for(const x of (d.data||[])){const l=baseEmpToLead(x,requestedNiche,city,stateCode);if(l)out.push(l)}
+  return out;
+}
+function mergeSearchResults(a,b,requestedNiche){
+  const all=[...(a||[]),...(b||[])],out=[],seen=new Map();
+  const keyOf=x=>{
+    const p=digits(x.phone||x.whatsapp);
+    if(p)return 'p:'+p;
+    if(x.cnpj)return 'c:'+digits(x.cnpj);
+    return 'n:'+normText(x.name)+'|'+normText(x.address)+'|'+normText(x.city);
+  };
+  for(const x of all){
+    const k=keyOf(x);
+    if(!seen.has(k)){seen.set(k,out.length);out.push({...x});continue}
+    const i=seen.get(k),cur=out[i];
+    out[i]={
+      ...cur,...x,
+      phone:cur.phone||x.phone||'',
+      whatsapp:cur.whatsapp||x.whatsapp||'',
+      website:cur.website||x.website||'',
+      instagram:cur.instagram||x.instagram||'',
+      address:cur.address||x.address||'',
+      source:[cur.source,x.source].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' + '),
+      has_phone:!!(cur.has_phone||x.has_phone||cur.phone||x.phone),
+      segment_confidence:cur.segment_confidence||x.segment_confidence||''
+    };
+  }
+  return out;
+}
+
 async function searchBusinesses(){
   const city=$('#s_city').value.trim(),stateCode=$('#s_state').value.trim().toUpperCase(),niche=$('#s_niche').value,radius=Number($('#s_radius').value),st=$('#searchStatus'),btn=$('#searchCompaniesBtn');
   if(!city||!stateCode){st.textContent='Informe cidade e UF.';return}
-  const seq=++searchRunSeq;
   if(btn){btn.disabled=true;btn.textContent='Buscando...'}
-  searchResults=[];st.textContent='Buscando em várias fontes públicas...';$('#searchResults').innerHTML='<div class="empty">Consultando Base Empresarial e OpenStreetMap...</div>';
-  try{
-    const settled=await Promise.allSettled([baseCompanySearch(city,stateCode,niche),browserBusinessSearch(city,stateCode,niche,radius)]);
-    if(seq!==searchRunSeq)return;
-    const base=settled[0].status==='fulfilled'?settled[0].value:[];
-    const osm=settled[1].status==='fulfilled'?settled[1].value:[];
-    searchResults=mergeSearchResults([base,osm]);
-    const phones=searchResults.filter(r=>r.phone||r.whatsapp).length;
-    st.textContent=searchResults.length+' negócios encontrados · '+phones+' já com telefone · iniciando enriquecimento de contatos...';
-    $('#searchResults').innerHTML=renderSearchResults();
-    if(!searchResults.length)st.textContent='Nenhum negócio foi encontrado nas fontes disponíveis para este recorte.';
-  }catch(e){
-    if(seq===searchRunSeq){st.textContent='A busca encontrou um erro temporário. Tente novamente.';$('#searchResults').innerHTML=renderSearchResults()}
-  }finally{
-    if(btn&&seq===searchRunSeq){btn.disabled=false;btn.textContent='Buscar empresas'}
+  searchResults=[];$('#searchResults').innerHTML='<div class="empty">Consultando bases públicas...</div>';
+  let osm=[],base=[],errors=[];
+  st.textContent='Buscando em OpenStreetMap e Receita Federal...';
+  const jobs=[
+    browserBusinessSearch(city,stateCode,niche,radius).then(v=>osm=v).catch(e=>errors.push('OSM: '+(e.message||e))),
+    baseEmpSearch(city,stateCode,niche).then(v=>base=v).catch(e=>errors.push('Empresas: '+(e.message||e)))
+  ];
+  await Promise.all(jobs);
+  searchResults=mergeSearchResults(osm,base,niche);
+  if(searchResults.length){
+    const phones=searchResults.filter(x=>x.phone||x.whatsapp).length;
+    const known=searchResults.filter(x=>x.has_phone&&!x.phone&&!x.whatsapp).length;
+    st.textContent=searchResults.length+' negócios encontrados · '+phones+' com telefone público'+(known?' · '+known+' com telefone cadastrado na base empresarial':'')+'.';
+  }else{
+    st.textContent=errors.length?'Não encontrei resultados agora. '+errors.join(' | '):'Nenhum cadastro encontrado para esse recorte.';
   }
-  if(seq===searchRunSeq&&searchResults.length)enrichSearchContacts(seq);
+  $('#searchResults').innerHTML=renderSearchResults();
+  if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
 }
 async function addSearchLead(i){
   const r=searchResults[i];if(!r)return;
