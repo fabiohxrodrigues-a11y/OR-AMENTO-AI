@@ -136,17 +136,19 @@ function go(id){current=id;render()}
 function render(){renderNav();const meta={dashboard:['Dashboard','Visão geral da sua prospecção'],buscar:['Buscar leads','Encontre negócios em dados públicos'],leads:['Leads','Organize e acompanhe seus contatos'],funil:['Funil','Arraste os leads entre as etapas'],hoje:['Follow-ups de hoje','Veja contatos vencidos e do dia'],mensagens:['Mensagens','Edite os textos usados por nicho'],produtos:['Produtos / Apps','Configure os links de demonstração'],config:['Configurações','Dados do vendedor e manutenção']};$('#pageTitle').textContent=meta[current][0];$('#pageSub').textContent=meta[current][1];const v=$('#view');v.innerHTML=current==='dashboard'?viewDashboard():current==='buscar'?viewSearch():current==='leads'?viewLeads():current==='funil'?viewFunnel():current==='hoje'?viewToday():current==='mensagens'?viewMessages():current==='produtos'?viewProducts():viewSettings();if(current==='leads')setTimeout(refreshLeadTable);if(current==='funil')setTimeout(bindKanban)}
 const countStatus=s=>leads.filter(l=>l.status===s).length;
 function viewDashboard(){const total=leads.length,clients=countStatus('Cliente'),conv=total?Math.round(clients/total*100):0,nicheCounts=NICHES.map(n=>[n,leads.filter(l=>l.niche===n).length]);const follow=leads.filter(l=>l.next_followup_at).sort((a,b)=>new Date(a.next_followup_at)-new Date(b.next_followup_at)).slice(0,6);return `<div class="grid kpis">${[['Leads',total],['Novos',countStatus('Novo')],['Contatados',countStatus('Contatado')],['Responderam',countStatus('Respondeu')],['Demos',countStatus('Demonstração')],['Clientes',clients],['Conversão',conv+'%']].map(x=>`<div class="card kpi"><span>${x[0]}</span><b>${x[1]}</b></div>`).join('')}</div><div class="grid two" style="margin-top:16px"><div class="card section"><h3>Leads por nicho</h3>${nicheCounts.map(([n,c])=>`<div style="margin:13px 0"><div style="display:flex;justify-content:space-between"><span>${esc(n)}</span><b>${c}</b></div><div class="progress"><span style="width:${total?c/total*100:0}%"></span></div></div>`).join('')}</div><div class="card section"><h3>Atalhos</h3><div class="actions"><button class="btn primary" data-go="buscar">Buscar leads</button><button class="btn" onclick="pb.openLead()">Novo lead</button><button class="btn" onclick="document.getElementById('csvFile').click()">Importar CSV</button><button class="btn" data-go="mensagens">Mensagens</button></div><div class="note" style="margin-top:16px">O WhatsApp é aberto com a mensagem pronta, mas o envio sempre depende de você.</div></div></div><div class="grid two" style="margin-top:16px"><div class="card section"><h3>Atividades recentes</h3>${activities.length?`<div class="list">${activities.slice(0,8).map(a=>`<div class="row"><div><b>${esc(activityName(a))}</b><div class="small muted">${esc(a.details?.lead_name||'')} · ${new Date(a.created_at).toLocaleString('pt-BR')}</div></div></div>`).join('')}</div>`:'<div class="empty">Nenhuma atividade ainda.</div>'}</div><div class="card section"><h3>Próximos follow-ups</h3>${follow.length?`<div class="list">${follow.map(l=>`<div class="row"><div><b>${esc(l.name)}</b><div class="small muted">${new Date(l.next_followup_at).toLocaleString('pt-BR')}</div></div><button class="btn" onclick="pb.wa('${l.id}')">WhatsApp</button></div>`).join('')}</div>`:'<div class="empty">Nenhum follow-up agendado.</div>'}</div></div>`}
-function viewSearch(){return `<div class="card section"><div class="form-grid"><div class="field"><label>Cidade</label><input id="s_city" class="input" value="São José do Rio Preto"></div><div class="field"><label>UF</label><input id="s_state" class="input" value="SP" maxlength="2"></div><div class="field"><label>Segmento</label><select id="s_niche" class="select">${NICHES.map(n=>`<option>${n}</option>`).join('')}</select></div><div class="field"><label>Raio</label><select id="s_radius" class="select"><option value="3000">3 km</option><option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option><option value="30000">30 km</option></select></div></div><div class="actions" style="margin-top:14px"><button class="btn primary" id="searchCompaniesBtn" data-pb-search>Buscar empresas</button><button class="btn" onclick="pb.filter('phone')">Só com telefone</button><button class="btn ghost" onclick="pb.filter('all')">Todos</button></div><div class="note" style="margin-top:14px">Busca combinada: Base CNPJ + OpenStreetMap + BrasilAPI. O raio vale para o mapa; a base CNPJ cobre a cidade inteira. Telefones só aparecem quando existem em fonte pública.</div></div><div class="card section" style="margin-top:16px"><h3>Resultados</h3><div id="searchStatus" class="muted small"></div><div id="searchResults">${renderSearchResults()}</div></div>`}
+function viewSearch(){return `<div class="card section"><div class="form-grid"><div class="field"><label>Cidade</label><input id="s_city" class="input" value="São José do Rio Preto"></div><div class="field"><label>UF</label><input id="s_state" class="input" value="SP" maxlength="2"></div><div class="field"><label>Segmento</label><select id="s_niche" class="select">${NICHES.map(n=>`<option>${n}</option>`).join('')}</select></div><div class="field"><label>Raio</label><select id="s_radius" class="select"><option value="3000">3 km</option><option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option><option value="30000">30 km</option></select></div></div><div class="actions" style="margin-top:14px"><button class="btn primary" id="searchCompaniesBtn" data-pb-search>Buscar empresas</button><button class="btn" onclick="pb.filter('phone')">Só com telefone</button><button class="btn ghost" onclick="pb.filter('all')">Todos</button></div><div class="note" style="margin-top:14px">Busca combinada: Base Empresarial + BrasilAPI + OpenStreetMap. A base CNPJ cobre a cidade inteira; o raio vale para o mapa. Telefones são enriquecidos em lotes para respeitar os limites das fontes públicas.</div></div><div class="card section" style="margin-top:16px"><h3>Resultados</h3><div id="searchStatus" class="muted small"></div><div id="searchResults">${renderSearchResults()}</div></div>`}
 
 function normalizeText(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
 function confidenceRank(v){return v==='Alta'?3:v==='Média'?2:1}
+
 
 function renderSearchResults(){
   let arr=searchResults.map((r,idx)=>({r,idx}));
   if(searchFilter==='phone')arr=arr.filter(x=>x.r.phone||x.r.whatsapp);
   arr.sort((a,b)=>Number(!!(b.r.phone||b.r.whatsapp))-Number(!!(a.r.phone||a.r.whatsapp))||confidenceRank(b.r.segment_confidence)-confidenceRank(a.r.segment_confidence)||String(a.r.name).localeCompare(String(b.r.name),'pt-BR'));
-  if(!arr.length)return '<div class="empty">'+(searchResults.length?'Nenhum dos resultados atuais possui telefone público.':'Faça uma busca para encontrar empresas.')+'</div>';
-  const top='<div class="actions" style="margin-bottom:12px"><button class="btn" onclick="pb.addAllSearch()">Adicionar todos os resultados</button><span class="small muted">'+arr.length+' exibidos</span></div>';
+  if(!arr.length)return '<div class="empty">'+(searchResults.length?'Nenhum dos resultados atuais possui telefone público ainda. Use “Enriquecer +18 telefones”.':'Faça uma busca para encontrar empresas.')+'</div>';
+  const pending=searchResults.filter(r=>r.cnpj&&r.has_phone&&!r.phone&&!r.whatsapp&&!r._enrichTried).length;
+  const top='<div class="actions" style="margin-bottom:12px"><button class="btn" onclick="pb.addAllSearch()">Adicionar todos os resultados</button>'+(pending?'<button class="btn blue" id="enrichContactsBtn" onclick="pb.enrichContacts()">Enriquecer +18 telefones</button>':'')+'<span class="small muted">'+arr.length+' exibidos</span></div>';
   return top+arr.map(x=>{
     const r=x.r,idx=x.idx,hasPhone=!!(r.phone||r.whatsapp),knownPhone=!hasPhone&&r.has_phone;
     const conf=r.segment_confidence||'A confirmar';
@@ -332,68 +334,107 @@ async function getCityIbgeCode(city,stateCode){
   return String(hit.id);
 }
 
+
+function classifyBusinessName(name,requestedNiche){
+  const n=normText(name);
+  if(/barbearia|barber|barber shop/.test(n))return {niche:'Barbearia',confidence:'Alta'};
+  if(/manicure|nail|unha|esmalteria|pedicure/.test(n))return {niche:'Manicure / Nail Designer',confidence:'Alta'};
+  if(/cabeleireir|hair|coiffure/.test(n))return {niche:'Cabeleireiro',confidence:'Alta'};
+  if(/salao|beleza|estetica|studio|espaco beauty|espaco de beleza/.test(n))return {niche:'Salão Completo',confidence:'Média'};
+  return {niche:requestedNiche,confidence:'CNAE amplo'};
+}
 function baseEmpToLead(x,requestedNiche,city,stateCode){
-  const a=x.address||{},ct=x.contact||{},mainCode=String(x.main_cnae?.code||x.main_cnae||'');
-  const name=(x.trade_name||x.corporate_name||('CNPJ '+(x.full_cnpj||''))).trim();if(!name)return null;
-  const address=[a.street_type,a.street,a.number,a.neighborhood].filter(Boolean).join(' ');
-  const tn=normText(name);
-  let niche=requestedNiche,confidence='CNAE 9602-5/01';
-  if(/barbearia|barber/.test(tn)){niche='Barbearia';confidence='Alta'}
-  else if(/manicure|nail|unha|esmalteria|pedicure/.test(tn)){niche='Manicure / Nail Designer';confidence='Alta'}
-  else if(/cabeleireiro|cabelo|hair/.test(tn)){niche='Cabeleireiro';confidence='Alta'}
-  else if(/salao|salão|beleza|estetica|estética/.test(tn)){niche='Salão Completo';confidence='Média'}
+  const name=(x.trade_name||x.name||x.corporate_name||('CNPJ '+(x.cnpj||''))).trim();
+  if(!name)return null;
+  const c=classifyBusinessName(name,requestedNiche);
+  const address=[x.street_type,x.address,x.address_number,x.additional_address_info,x.neighborhood].filter(Boolean).join(', ');
   return {
     name,
-    phone:ct.phone_1||'',
+    phone:'',
     whatsapp:'',
-    email:ct.email||'',
+    email:'',
     website:'',
     instagram:'',
     address,
-    city,
-    state:stateCode,
-    niche,
+    city:x.city||city,
+    state:x.state||stateCode,
+    niche:c.niche,
     latitude:null,longitude:null,
-    source:'Base Empresarial / Receita Federal',
-    source_url:'https://app.baseempresarial.com.br',
-    has_phone:!!ct.has_phone,
-    has_email:!!ct.has_email,
-    segment_confidence:confidence,
-    cnpj:x.cnpj||x.full_cnpj||'',
-    registration_status:(x.registration_status&&((x.registration_status.label)||(x.registration_status.name)))||'',
+    source:'Base Empresarial',
+    source_url:x.source_url||'https://baseempresarial.com.br',
+    has_phone:true,
+    has_email:false,
+    segment_confidence:c.confidence,
+    cnpj:String(x.cnpj||''),
+    registration_status:'Ativa',
     activity_start_date:x.activity_start_date||'',
-    main_cnae:mainCode
+    _enrichTried:false
   };
 }
 async function baseEmpSearch(city,stateCode,requestedNiche){
-  const code=await getCityIbgeCode(city,stateCode),out=[],seen=new Set();
-  let pagesScanned=0;
-  for(let page=1;page<=8&&out.length<80;page++){
-    const params=new URLSearchParams();
-    params.set('filter[city_ibge_code]',code);
-    params.set('per_page','100');
-    params.set('page',String(page));
-    params.set('sort','-activity_start_date');
-    let url='https://app.baseempresarial.com.br/api/v1/establishments?'+params.toString();
-    let r=await fetchTimeout(url,{headers:{Accept:'application/json'}},12000);
-    if(r.status===400&&page===1){
-      params.delete('sort'); url='https://app.baseempresarial.com.br/api/v1/establishments?'+params.toString();
-      r=await fetchTimeout(url,{headers:{Accept:'application/json'}},12000);
-    }
-    if(!r.ok)break;
-    const d=await r.json(),rows=d.data||[];pagesScanned++;
-    if(!rows.length)break;
-    for(const x of rows){
-      if(String(x.registration_status?.code||'')!=='02')continue;
-      if(String(x.main_cnae?.code||x.main_cnae||'')!=='9602501')continue;
-      const k=String(x.full_cnpj||x.id||'');if(seen.has(k))continue;seen.add(k);
-      const l=baseEmpToLead(x,requestedNiche,city,stateCode);if(l)out.push(l);
-    }
-    if(!d.links?.next)break;
-    await new Promise(res=>setTimeout(res,120));
+  const code=await getCityIbgeCode(city,stateCode);
+  const {data,error}=await sb.functions.invoke('directory-leads',{body:{city_id:code,city,state:stateCode,page:1,per_page:100}});
+  if(error)throw error;
+  if(data&&data.error)throw new Error(data.error);
+  const out=[];
+  for(const x of (data&&data.results||[])){
+    const l=baseEmpToLead(x,requestedNiche,city,stateCode);if(l)out.push(l);
   }
-  out._pagesScanned=pagesScanned;
+  out._hasMore=!!(data&&data.meta&&data.meta.has_more);
+  out._page=(data&&data.meta&&data.meta.current_page)||1;
   return out;
+}
+async function enrichOneContact(r,requestedNiche){
+  if(!r||!r.cnpj||r.phone||r._enrichTried)return 'skip';
+  try{
+    const resp=await fetchTimeout('https://brasilapi.com.br/api/cnpj/v1/'+digits(r.cnpj),{headers:{Accept:'application/json'}},12000);
+    if(resp.status===429)return 'rate';
+    r._enrichTried=true;
+    if(!resp.ok)return 'fail';
+    const j=await resp.json();
+    const newName=(j.nome_fantasia||j.razao_social||r.name||'').trim();
+    if(newName)r.name=newName;
+    r.phone=String(j.ddd_telefone_1||j.ddd_telefone_2||'').trim();
+    r.email=String(j.email||'').trim();
+    const addr=[j.descricao_tipo_de_logradouro,j.logradouro,j.numero,j.complemento,j.bairro].filter(Boolean).join(', ');
+    if(addr)r.address=addr;
+    r.city=j.municipio||r.city;
+    r.state=j.uf||r.state;
+    const c=classifyBusinessName(r.name,requestedNiche);
+    r.niche=c.niche;r.segment_confidence=c.confidence;
+    r.source='Base Empresarial + BrasilAPI';
+    return r.phone?'phone':'ok';
+  }catch(e){
+    r._enrichTried=true;
+    return 'fail';
+  }
+}
+let enrichBusy=false;
+async function enrichMoreContacts(limit=18){
+  if(enrichBusy)return;
+  const st=$('#searchStatus');if(!st)return;
+  const niche=$('#s_niche')?.value||'Salão Completo';
+  const candidates=searchResults.filter(r=>r.cnpj&&r.has_phone&&!r.phone&&!r.whatsapp&&!r._enrichTried).slice(0,limit);
+  if(!candidates.length){toast('Não há mais contatos pendentes neste lote.');return}
+  enrichBusy=true;
+  const btn=$('#enrichContactsBtn');if(btn){btn.disabled=true;btn.textContent='Enriquecendo...'}
+  let done=0,phones=0,rate=false;
+  for(let i=0;i<candidates.length;i+=3){
+    const batch=candidates.slice(i,i+3);
+    const rs=await Promise.all(batch.map(r=>enrichOneContact(r,niche)));
+    done+=batch.length;phones+=rs.filter(x=>x==='phone').length;
+    if(rs.includes('rate')){rate=true;break}
+    const box=$('#searchResults');if(box)box.innerHTML=renderSearchResults();
+    const totalPhones=searchResults.filter(x=>x.phone||x.whatsapp).length;
+    st.textContent=searchResults.length+' negócios encontrados · '+totalPhones+' com telefone público · enriquecendo '+done+'/'+candidates.length+'.';
+    await new Promise(res=>setTimeout(res,750));
+  }
+  const box=$('#searchResults');if(box)box.innerHTML=renderSearchResults();
+  const totalPhones=searchResults.filter(x=>x.phone||x.whatsapp).length;
+  const pending=searchResults.filter(x=>x.cnpj&&x.has_phone&&!x.phone&&!x.whatsapp&&!x._enrichTried).length;
+  st.textContent=searchResults.length+' negócios encontrados · '+totalPhones+' com telefone público'+(pending?' · '+pending+' ainda podem ser enriquecidos':'')+(rate?' · limite temporário da BrasilAPI atingido, tente Enriquecer +18 depois':'')+'.';
+  enrichBusy=false;
+  const b=$('#enrichContactsBtn');if(b){b.disabled=false;b.textContent='Enriquecer +18 telefones'}
 }
 function mergeSearchResults(a,b,requestedNiche){
   const all=[...(a||[]),...(b||[])],out=[],seen=new Map();
@@ -411,6 +452,7 @@ function mergeSearchResults(a,b,requestedNiche){
       ...cur,...x,
       phone:cur.phone||x.phone||'',
       whatsapp:cur.whatsapp||x.whatsapp||'',
+      email:cur.email||x.email||'',
       website:cur.website||x.website||'',
       instagram:cur.instagram||x.instagram||'',
       address:cur.address||x.address||'',
@@ -422,27 +464,30 @@ function mergeSearchResults(a,b,requestedNiche){
   return out;
 }
 
+
 async function searchBusinesses(){
   const city=$('#s_city').value.trim(),stateCode=$('#s_state').value.trim().toUpperCase(),niche=$('#s_niche').value,radius=Number($('#s_radius').value),st=$('#searchStatus'),btn=$('#searchCompaniesBtn');
   if(!city||!stateCode){st.textContent='Informe cidade e UF.';return}
   if(btn){btn.disabled=true;btn.textContent='Buscando...'}
-  searchResults=[];$('#searchResults').innerHTML='<div class="empty">Consultando bases públicas...</div>';
+  searchResults=[];searchFilter='all';
+  $('#searchResults').innerHTML='<div class="empty">Consultando Base Empresarial e OpenStreetMap...</div>';
   let osm=[],base=[],errors=[];
-  st.textContent='Buscando em OpenStreetMap e Receita Federal...';
+  st.textContent='Buscando empresas ativas do CNAE de beleza com telefone cadastrado...';
   const jobs=[
     browserBusinessSearch(city,stateCode,niche,radius).then(v=>osm=v).catch(e=>errors.push('OSM: '+(e.message||e))),
-    baseEmpSearch(city,stateCode,niche).then(v=>base=v).catch(e=>errors.push('Empresas: '+(e.message||e)))
+    baseEmpSearch(city,stateCode,niche).then(v=>base=v).catch(e=>errors.push('Base CNPJ: '+(e.message||e)))
   ];
   await Promise.all(jobs);
   searchResults=mergeSearchResults(osm,base,niche);
+  const box=$('#searchResults');if(box)box.innerHTML=renderSearchResults();
   if(searchResults.length){
-    const phones=searchResults.filter(x=>x.phone||x.whatsapp).length;
     const known=searchResults.filter(x=>x.has_phone&&!x.phone&&!x.whatsapp).length;
-    st.textContent=searchResults.length+' negócios encontrados · '+phones+' com telefone público'+(known?' · '+known+' com telefone cadastrado na base empresarial':'')+'.';
+    const phones=searchResults.filter(x=>x.phone||x.whatsapp).length;
+    st.textContent=searchResults.length+' negócios encontrados · '+phones+' com telefone público'+(known?' · '+known+' com telefone cadastrado para enriquecer':'')+'.';
+    if(known)await enrichMoreContacts(18);
   }else{
     st.textContent=errors.length?'Não encontrei resultados agora. '+errors.join(' | '):'Nenhum cadastro encontrado para esse recorte.';
   }
-  $('#searchResults').innerHTML=renderSearchResults();
   if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
 }
 
@@ -542,7 +587,7 @@ async function logActivity(type,l){const {data}=await sb.from('activities').inse
 function exportCSV(){const heads=['name','owner_name','niche','phone','whatsapp','email','cnpj','city','state','status','instagram','website','address','notes','next_followup_at','do_not_contact','source','source_url','segment_confidence'];const rows=[heads.join(';')].concat(leads.map(l=>heads.map(h=>`"${String(l[h]??'').replaceAll('"','""')}"`).join(';')));const b=new Blob(['\ufeff'+rows.join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='prospecta-leads.csv';a.click();URL.revokeObjectURL(a.href)}
 function parseCSV(text){const sep=(text.split('\n')[0].match(/;/g)||[]).length>(text.split('\n')[0].match(/,/g)||[]).length?';':',';const rows=[];let row=[],cell='',q=false;for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(q&&text[i+1]==='"'){cell+='"';i++}else q=!q}else if(c===sep&&!q){row.push(cell);cell=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()!==''))rows.push(row);row=[];cell=''}else cell+=c}row.push(cell);if(row.some(x=>x.trim()!==''))rows.push(row);return rows}
 async function importCSV(ev){const file=ev.target.files[0];if(!file)return;const rows=parseCSV(await file.text());if(rows.length<2){toast('CSV vazio.');return}const head=rows[0].map(x=>x.trim().toLowerCase()),batch=[];for(const r of rows.slice(1)){const o={};head.forEach((h,i)=>o[h]=r[i]||'');if(!o.name)continue;const p=digits(o.phone||o.whatsapp);if(leads.some(l=>p&&digits(l.phone||l.whatsapp)===p))continue;batch.push({user_id:user.id,name:o.name,owner_name:o.owner_name||o.owner||'',niche:NICHES.includes(o.niche)?o.niche:'Salão Completo',phone:o.phone||'',whatsapp:o.whatsapp||'',email:o.email||'',cnpj:o.cnpj||'',city:o.city||'',state:(o.state||'').toUpperCase(),status:STATUSES.includes(o.status)?o.status:'Novo',instagram:o.instagram||'',website:o.website||'',address:o.address||'',notes:o.notes||'',next_followup_at:o.next_followup_at||o.followup||null,do_not_contact:String(o.do_not_contact||o.dnc).toLowerCase()==='true',source:o.source||'CSV',source_url:o.source_url||'',segment_confidence:o.segment_confidence||''})}if(!batch.length){toast('Nenhum lead novo para importar.');return}const {data,error}=await sb.from('leads').insert(batch).select();if(error){toast(error.message);return}leads=[...(data||[]),...leads];render();toast(`${data.length} leads importados.`);ev.target.value=''}
-window.pb={openLead:openLeadModal,close:closeModal,saveLead,del:deleteLead,wa:prepareWA,openWA:openWhatsApp,copyWA:copyWhatsApp,search:searchBusinesses,addSearch:addSearchLead,addAllSearch,contactSearch:searchPublicContact,filter:f=>{searchFilter=f;const e=$('#searchResults');if(e)e.innerHTML=renderSearchResults()},refreshLeads:refreshLeadTable,saveTemplate,saveProduct,saveSettings,exportCSV};
+window.pb={openLead:openLeadModal,close:closeModal,saveLead,del:deleteLead,wa:prepareWA,openWA:openWhatsApp,copyWA:copyWhatsApp,search:searchBusinesses,addSearch:addSearchLead,addAllSearch,enrichContacts:()=>enrichMoreContacts(18),contactSearch:searchPublicContact,filter:f=>{searchFilter=f;const e=$('#searchResults');if(e)e.innerHTML=renderSearchResults()},refreshLeads:refreshLeadTable,saveTemplate,saveProduct,saveSettings,exportCSV};
 document.addEventListener('click',function(ev){const btn=ev.target.closest('[data-pb-search]');if(btn){ev.preventDefault();searchBusinesses();}});
 
 boot();
