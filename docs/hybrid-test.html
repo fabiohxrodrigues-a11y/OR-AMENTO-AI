@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>Teste híbrido</title><pre id="o">iniciando...</pre>
+<script>
+const o=document.getElementById('o');
+(async()=>{
+ let logs=[];
+ try{
+  const u='https://app.baseempresarial.com.br/api/v1/companies/search?cnae=9602501&city_id=3549805&registration_status=02&per_page=20';
+  const r=await fetch(u);logs.push('base status='+r.status);
+  const d=await r.json();logs.push('base itens='+((d.data||[]).length));
+  const first=(d.data||[]).find(x=>x.full_cnpj);
+  if(first){logs.push('primeiro='+first.full_cnpj+' '+(first.trade_name||first.corporate_name||''));const b=await fetch('https://brasilapi.com.br/api/cnpj/v1/'+first.full_cnpj);logs.push('brasilapi status='+b.status);const bd=await b.json();logs.push('telefone='+(bd.ddd_telefone_1||''));logs.push('fantasia='+(bd.nome_fantasia||''));}
+ }catch(e){logs.push('ERRO '+e)}
+ o.textContent=logs.join('\n');
+})();
+</script>
