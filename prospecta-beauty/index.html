@@ -414,49 +414,69 @@ async function enrichOneContact(r,requestedNiche){
 }
 let enrichBusy=false;
 
-async function enrichMoreContacts(limit=18,opts={}){
-  if(enrichBusy)return {done:0,phones:0,rate:false};
-  const st=$('#searchStatus');if(!st)return {done:0,phones:0,rate:false};
+
+async function enrichMoreContacts(limit=12,opts={}){
+  if(enrichBusy)return {done:0,phones:0,timeout:false};
+  const st=$('#searchStatus');if(!st)return {done:0,phones:0,timeout:false};
   const niche=$('#s_niche')?.value||'Salão Completo';
-  const candidates=searchResults.filter(r=>r.cnpj&&r.has_phone&&!r.phone&&!r.whatsapp&&!r._enrichTried).slice(0,limit);
-  if(!candidates.length){if(!opts.silent)toast('Não há mais contatos pendentes neste lote.');return {done:0,phones:0,rate:false}}
+  const candidates=searchResults.filter(r=>r.cnpj&&r.has_phone&&!r.phone&&!r.whatsapp&&!r._enrichTried).slice(0,Math.min(limit,24));
+  if(!candidates.length){if(!opts.silent)toast('Não há mais contatos pendentes neste lote.');return {done:0,phones:0,timeout:false}}
   enrichBusy=true;
   const btn=$('#enrichContactsBtn');if(btn){btn.disabled=true;btn.textContent='Buscando telefones...'}
-  let done=0,phones=0,rate=false;
+  let done=0,phones=0,timeoutHit=false;
   try{
-    for(let i=0;i<candidates.length;i+=3){
-      const batch=candidates.slice(i,i+3);
-      const rs=await Promise.all(batch.map(r=>enrichOneContact(r,niche)));
-      done+=batch.length;phones+=rs.filter(x=>x==='phone').length;
-      if(rs.includes('rate')){rate=true;break}
-      const totalPhones=searchResults.filter(x=>x.phone||x.whatsapp).length;
-      if(opts.progress!==false){
-        st.textContent='Confirmando telefones públicos... '+done+'/'+candidates.length+' · '+totalPhones+' confirmados.';
-        const box=$('#searchResults');if(box&&totalPhones)box.innerHTML=renderSearchResults();
+    for(let i=0;i<candidates.length;i+=12){
+      const batch=candidates.slice(i,i+12);
+      const cnpjs=batch.map(r=>digits(r.cnpj));
+      let res=null;
+      try{
+        const invoke=sb.functions.invoke('enrich-cnpj',{body:{cnpjs}});
+        res=await Promise.race([
+          invoke,
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),9500))
+        ]);
+      }catch(e){
+        timeoutHit=true;
+        break;
       }
-      await new Promise(res=>setTimeout(res,450));
+      const items=(res&&res.data&&res.data.results)||[];
+      const by=new Map(items.map(x=>[digits(x.cnpj),x]));
+      for(const r of batch){
+        const x=by.get(digits(r.cnpj));
+        r._enrichTried=true;
+        done++;
+        if(!x||!x.ok)continue;
+        if(x.name)r.name=String(x.name).trim()||r.name;
+        if(x.phone)r.phone=String(x.phone).trim();
+        if(x.email)r.email=String(x.email).trim();
+        if(x.address)r.address=String(x.address).trim();
+        if(x.city)r.city=String(x.city).trim();
+        if(x.state)r.state=String(x.state).trim();
+        if(r.phone)phones++;
+        const c=classifyBusinessName(r.name,niche);
+        r.niche=c.niche;r.segment_confidence=c.confidence;
+        r.source='Base Empresarial + BrasilAPI';
+      }
+      const totalPhones=searchResults.filter(x=>x.phone||x.whatsapp).length;
+      if(opts.progress!==false)st.textContent=totalPhones+' telefones públicos confirmados.';
+      const box=$('#searchResults');if(box)box.innerHTML=renderSearchResults();
     }
   }finally{
     enrichBusy=false;
     const b=$('#enrichContactsBtn');if(b){b.disabled=false;b.textContent='Buscar mais telefones'}
   }
-  const box=$('#searchResults');if(box)box.innerHTML=renderSearchResults();
-  return {done,phones,rate};
+  return {done,phones,timeout:timeoutHit};
 }
-async function autoEnrichContacts(targetPhones=12,maxAttempts=45){
-  const st=$('#searchStatus');
-  let attempts=0,rate=false;
-  while(searchResults.filter(x=>x.phone||x.whatsapp).length<targetPhones && attempts<maxAttempts){
-    const remaining=maxAttempts-attempts;
-    const batch=Math.min(12,remaining);
+async function autoEnrichContacts(targetPhones=12,maxAttempts=36){
+  let attempts=0,timeout=false;
+  while(searchResults.filter(x=>x.phone||x.whatsapp).length<targetPhones&&attempts<maxAttempts){
     const pending=searchResults.filter(r=>r.cnpj&&r.has_phone&&!r.phone&&!r.whatsapp&&!r._enrichTried).length;
     if(!pending)break;
-    const res=await enrichMoreContacts(Math.min(batch,pending),{silent:true,progress:true});
+    const res=await enrichMoreContacts(Math.min(12,pending),{silent:true,progress:true});
     attempts+=res.done;
-    if(res.rate){rate=true;break}
-    if(!res.done)break;
+    if(res.timeout||!res.done){timeout=!!res.timeout;break}
   }
-  return {attempts,rate,phones:searchResults.filter(x=>x.phone||x.whatsapp).length};
+  return {attempts,timeout,phones:searchResults.filter(x=>x.phone||x.whatsapp).length};
 }
 
 function mergeSearchResults(a,b,requestedNiche){
@@ -489,19 +509,19 @@ function mergeSearchResults(a,b,requestedNiche){
 
 
 
+
 async function searchBusinesses(){
   const city=$('#s_city').value.trim(),stateCode=$('#s_state').value.trim().toUpperCase(),niche=$('#s_niche').value,radius=Number($('#s_radius').value),st=$('#searchStatus'),btn=$('#searchCompaniesBtn');
   if(!city||!stateCode){st.textContent='Informe cidade e UF.';return}
   if(btn){btn.disabled=true;btn.textContent='Buscando...'}
   searchResults=[];searchFilter='phone';
-  $('#searchResults').innerHTML='<div class="empty">Buscando empresas e confirmando telefones públicos...</div>';
+  $('#searchResults').innerHTML='<div class="empty">Localizando empresas do segmento...</div>';
   let osm=[],base=[],errors=[];
-  st.textContent='Localizando empresas ativas do segmento...';
-  const jobs=[
+  st.textContent='Consultando empresas ativas...';
+  await Promise.all([
     browserBusinessSearch(city,stateCode,niche,radius).then(v=>osm=v).catch(e=>errors.push('OSM: '+(e.message||e))),
     baseEmpSearch(city,stateCode,niche).then(v=>base=v).catch(e=>errors.push('Base CNPJ: '+(e.message||e)))
-  ];
-  await Promise.all(jobs);
+  ]);
   searchResults=mergeSearchResults(osm,base,niche);
   if(!searchResults.length){
     st.textContent=errors.length?'Não encontrei resultados agora. '+errors.join(' | '):'Nenhum cadastro encontrado para esse recorte.';
@@ -510,29 +530,30 @@ async function searchBusinesses(){
     return;
   }
 
-  const osmPhones=searchResults.filter(x=>x.phone||x.whatsapp).length;
-  st.textContent=searchResults.length+' empresas localizadas. Confirmando telefones...';
-  if(osmPhones<12)await autoEnrichContacts(12,45);
+  const found=searchResults.length;
+  st.textContent=found+' empresas localizadas. Confirmando os primeiros telefones...';
+  $('#searchResults').innerHTML='<div class="empty">Confirmando telefones públicos. Isso leva só alguns segundos...</div>';
 
+  const initial=await autoEnrichContacts(10,24);
   const phones=searchResults.filter(x=>x.phone||x.whatsapp).length;
   const pending=searchResults.filter(x=>x.cnpj&&x.has_phone&&!x.phone&&!x.whatsapp&&!x._enrichTried).length;
-  st.textContent=phones
-    ? phones+' contatos com telefone público prontos para WhatsApp'+(pending?' · '+pending+' contatos ainda podem ser verificados':'')+'.'
-    : 'As empresas foram encontradas, mas nenhum telefone público pôde ser confirmado agora.';
-  $('#searchResults').innerHTML=renderSearchResults();
 
-  if(pending&&phones){
-    setTimeout(()=>{autoEnrichContacts(Math.min(30,phones+12),36).then(()=>{
+  st.textContent=phones
+    ? phones+' contatos com telefone público prontos para WhatsApp'+(pending?' · '+pending+' ainda podem ser verificados':'')+'.'
+    : (initial.timeout?'A confirmação demorou demais. Mostrando os resultados encontrados; use “Buscar mais telefones”.':'Nenhum telefone público foi confirmado neste primeiro lote.');
+  $('#searchResults').innerHTML=renderSearchResults();
+  if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
+
+  if(pending){
+    setTimeout(async()=>{
+      await enrichMoreContacts(12,{silent:true,progress:false});
       const total=searchResults.filter(x=>x.phone||x.whatsapp).length;
       const rest=searchResults.filter(x=>x.cnpj&&x.has_phone&&!x.phone&&!x.whatsapp&&!x._enrichTried).length;
       const status=$('#searchStatus');if(status)status.textContent=total+' contatos com telefone público prontos para WhatsApp'+(rest?' · '+rest+' ainda podem ser verificados':'')+'.';
       const box=$('#searchResults');if(box)box.innerHTML=renderSearchResults();
-    })},200);
+    },300);
   }
-
-  if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
 }
-
 
 async function ensureSearchLead(i){
   const r=searchResults[i];if(!r)return null;
