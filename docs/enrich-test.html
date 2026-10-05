@@ -1,0 +1,11 @@
+<!doctype html><meta charset="utf-8"><title>Teste Enrich</title><pre id="o">testando...</pre>
+<script>
+(async()=>{
+ const url='https://aavuxjbwvhxuqbsimwee.supabase.co/functions/v1/enrich-cnpj';
+ const body={cnpjs:['58653980000101','54146296000182','25201858000145','47942224000186','62651289000166']};
+ try{
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','apikey':'sb_publishable_2RMzW6MsyiNMWU2SHeFlqL_o5Gg5Nw'},body:JSON.stringify(body)});
+  const t=await r.text();document.getElementById('o').textContent='status '+r.status+'\n'+t;
+ }catch(e){document.getElementById('o').textContent='ERRO '+e}
+})();
+</script>
