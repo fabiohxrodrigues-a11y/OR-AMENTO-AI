@@ -349,16 +349,24 @@ function classifyBusinessName(name,requestedNiche){
   if(/salao|beleza|estetica|studio|espaco beauty|espaco de beleza/.test(n))return {niche:'Salão Completo',confidence:'Média'};
   return {niche:requestedNiche,confidence:'CNAE amplo'};
 }
+
 function baseEmpToLead(x,requestedNiche,city,stateCode){
   const name=(x.trade_name||x.name||x.corporate_name||('CNPJ '+(x.cnpj||''))).trim();
   if(!name)return null;
   const c=classifyBusinessName(name,requestedNiche);
-  const address=[x.street_type,x.address,x.address_number,x.additional_address_info,x.neighborhood].filter(Boolean).join(', ');
+  const address=String(x.address||[x.street_type,x.address,x.address_number,x.additional_address_info,x.neighborhood].filter(Boolean).join(', ')||'').trim();
+  const phone=String(x.phone||'').trim();
+  const email=String(x.email||'').trim();
+
+  if(requestedNiche==='Manicure / Nail Designer' && c.niche==='Barbearia')return null;
+  if(requestedNiche==='Barbearia' && (c.niche==='Manicure / Nail Designer'||c.niche==='Cabeleireiro'))return null;
+  if(requestedNiche==='Cabeleireiro' && c.niche==='Barbearia')return null;
+
   return {
     name,
-    phone:'',
+    phone,
     whatsapp:'',
-    email:'',
+    email,
     website:'',
     instagram:'',
     address,
@@ -366,15 +374,15 @@ function baseEmpToLead(x,requestedNiche,city,stateCode){
     state:x.state||stateCode,
     niche:c.niche,
     latitude:null,longitude:null,
-    source:'Base Empresarial',
+    source:x.source||'Base Empresarial + BrasilAPI',
     source_url:x.source_url||'https://baseempresarial.com.br',
-    has_phone:true,
-    has_email:false,
+    has_phone:!!phone,
+    has_email:!!email,
     segment_confidence:c.confidence,
     cnpj:String(x.cnpj||''),
     registration_status:'Ativa',
     activity_start_date:x.activity_start_date||'',
-    _enrichTried:false
+    _enrichTried:true
   };
 }
 async function baseEmpSearch(city,stateCode,requestedNiche){
