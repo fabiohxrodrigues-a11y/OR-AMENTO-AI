@@ -136,34 +136,31 @@ function go(id){current=id;render()}
 function render(){renderNav();const meta={dashboard:['Dashboard','Visão geral da sua prospecção'],buscar:['Buscar leads','Encontre negócios em dados públicos'],leads:['Leads','Organize e acompanhe seus contatos'],funil:['Funil','Arraste os leads entre as etapas'],hoje:['Follow-ups de hoje','Veja contatos vencidos e do dia'],mensagens:['Mensagens','Edite os textos usados por nicho'],produtos:['Produtos / Apps','Configure os links de demonstração'],config:['Configurações','Dados do vendedor e manutenção']};$('#pageTitle').textContent=meta[current][0];$('#pageSub').textContent=meta[current][1];const v=$('#view');v.innerHTML=current==='dashboard'?viewDashboard():current==='buscar'?viewSearch():current==='leads'?viewLeads():current==='funil'?viewFunnel():current==='hoje'?viewToday():current==='mensagens'?viewMessages():current==='produtos'?viewProducts():viewSettings();if(current==='leads')setTimeout(refreshLeadTable);if(current==='funil')setTimeout(bindKanban)}
 const countStatus=s=>leads.filter(l=>l.status===s).length;
 function viewDashboard(){const total=leads.length,clients=countStatus('Cliente'),conv=total?Math.round(clients/total*100):0,nicheCounts=NICHES.map(n=>[n,leads.filter(l=>l.niche===n).length]);const follow=leads.filter(l=>l.next_followup_at).sort((a,b)=>new Date(a.next_followup_at)-new Date(b.next_followup_at)).slice(0,6);return `<div class="grid kpis">${[['Leads',total],['Novos',countStatus('Novo')],['Contatados',countStatus('Contatado')],['Responderam',countStatus('Respondeu')],['Demos',countStatus('Demonstração')],['Clientes',clients],['Conversão',conv+'%']].map(x=>`<div class="card kpi"><span>${x[0]}</span><b>${x[1]}</b></div>`).join('')}</div><div class="grid two" style="margin-top:16px"><div class="card section"><h3>Leads por nicho</h3>${nicheCounts.map(([n,c])=>`<div style="margin:13px 0"><div style="display:flex;justify-content:space-between"><span>${esc(n)}</span><b>${c}</b></div><div class="progress"><span style="width:${total?c/total*100:0}%"></span></div></div>`).join('')}</div><div class="card section"><h3>Atalhos</h3><div class="actions"><button class="btn primary" data-go="buscar">Buscar leads</button><button class="btn" onclick="pb.openLead()">Novo lead</button><button class="btn" onclick="document.getElementById('csvFile').click()">Importar CSV</button><button class="btn" data-go="mensagens">Mensagens</button></div><div class="note" style="margin-top:16px">O WhatsApp é aberto com a mensagem pronta, mas o envio sempre depende de você.</div></div></div><div class="grid two" style="margin-top:16px"><div class="card section"><h3>Atividades recentes</h3>${activities.length?`<div class="list">${activities.slice(0,8).map(a=>`<div class="row"><div><b>${esc(activityName(a))}</b><div class="small muted">${esc(a.details?.lead_name||'')} · ${new Date(a.created_at).toLocaleString('pt-BR')}</div></div></div>`).join('')}</div>`:'<div class="empty">Nenhuma atividade ainda.</div>'}</div><div class="card section"><h3>Próximos follow-ups</h3>${follow.length?`<div class="list">${follow.map(l=>`<div class="row"><div><b>${esc(l.name)}</b><div class="small muted">${new Date(l.next_followup_at).toLocaleString('pt-BR')}</div></div><button class="btn" onclick="pb.wa('${l.id}')">WhatsApp</button></div>`).join('')}</div>`:'<div class="empty">Nenhum follow-up agendado.</div>'}</div></div>`}
-function viewSearch(){return `<div class="card section"><div class="form-grid"><div class="field"><label>Cidade</label><input id="s_city" class="input" value="São José do Rio Preto"></div><div class="field"><label>UF</label><input id="s_state" class="input" value="SP" maxlength="2"></div><div class="field"><label>Segmento</label><select id="s_niche" class="select">${NICHES.map(n=>`<option>${n}</option>`).join('')}</select></div><div class="field"><label>Raio</label><select id="s_radius" class="select"><option value="3000">3 km</option><option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option><option value="30000">30 km</option></select></div></div><div class="actions" style="margin-top:14px"><button class="btn primary" id="searchCompaniesBtn" data-pb-search>Buscar empresas</button><button class="btn" onclick="pb.filter('phone')">Só com telefone</button><button class="btn ghost" onclick="pb.filter('all')">Todos</button></div><div class="note" style="margin-top:14px">Busca combinada: Base Empresarial + BrasilAPI + OpenStreetMap. A lista principal mostra primeiro os contatos com telefone público confirmado e permite abrir uma mensagem pronta no WhatsApp.</div></div><div class="card section" style="margin-top:16px"><h3>Resultados</h3><div id="searchStatus" class="muted small"></div><div id="searchResults">${renderSearchResults()}</div></div>`}
+function viewSearch(){return `<div class="card section"><div class="form-grid"><div class="field"><label>Cidade</label><input id="s_city" class="input" value="São José do Rio Preto"></div><div class="field"><label>UF</label><input id="s_state" class="input" value="SP" maxlength="2"></div><div class="field"><label>Segmento</label><select id="s_niche" class="select">${NICHES.map(n=>`<option>${n}</option>`).join('')}</select></div><div class="field"><label>Raio</label><select id="s_radius" class="select"><option value="3000">3 km</option><option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option><option value="30000">30 km</option></select></div></div><div class="actions" style="margin-top:14px"><button class="btn primary" id="searchCompaniesBtn" data-pb-search>Buscar empresas</button></div><div class="note" style="margin-top:14px">A busca mostra somente empresas da cidade escolhida que já possuem telefone público confirmado. O botão WhatsApp abre a mensagem pronta para você revisar e enviar.</div></div><div class="card section" style="margin-top:16px"><h3>Resultados</h3><div id="searchStatus" class="muted small"></div><div id="searchResults">${renderSearchResults()}</div></div>`}
 
 function normalizeText(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
 function confidenceRank(v){return v==='Alta'?3:v==='Média'?2:1}
 
 
 
+
+function formatPhoneBR(v){
+  const d=digits(v);
+  if(d.length===11)return '('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7);
+  if(d.length===10)return '('+d.slice(0,2)+') '+d.slice(2,6)+'-'+d.slice(6);
+  return v||'';
+}
 function renderSearchResults(){
-  let arr=searchResults.map((r,idx)=>({r,idx}));
-  if(searchFilter==='phone')arr=arr.filter(x=>x.r.phone||x.r.whatsapp);
-  arr.sort((a,b)=>Number(!!(b.r.phone||b.r.whatsapp))-Number(!!(a.r.phone||a.r.whatsapp))||confidenceRank(b.r.segment_confidence)-confidenceRank(a.r.segment_confidence)||String(a.r.name).localeCompare(String(b.r.name),'pt-BR'));
-  const pending=searchResults.filter(r=>r.cnpj&&r.has_phone&&!r.phone&&!r.whatsapp&&!r._enrichTried).length;
-  const actualPhones=searchResults.filter(r=>r.phone||r.whatsapp).length;
-  if(!arr.length){
-    if(!searchResults.length)return '<div class="empty">Faça uma busca para encontrar empresas.</div>';
-    return '<div class="empty">Nenhum telefone público confirmado neste lote.<br><br><button class="btn" onclick="pb.filter(\'all\')">Ver todas as empresas encontradas</button>'+(pending?' <button class="btn blue" onclick="pb.enrichContacts()">Buscar mais telefones</button>':'')+'</div>';
-  }
-  const top='<div class="actions" style="margin-bottom:12px"><button class="btn" onclick="pb.addAllSearch()">Adicionar exibidos aos leads</button>'+(pending?'<button class="btn blue" id="enrichContactsBtn" onclick="pb.enrichContacts()">Buscar mais telefones</button>':'')+'<span class="small muted">'+arr.length+' exibidos · '+actualPhones+' com telefone confirmado'+(pending?' · '+pending+' aguardando verificação':'')+'</span></div>';
+  let arr=searchResults.map((r,idx)=>({r,idx})).filter(x=>x.r.phone||x.r.whatsapp);
+  arr.sort((a,b)=>confidenceRank(b.r.segment_confidence)-confidenceRank(a.r.segment_confidence)||String(a.r.name).localeCompare(String(b.r.name),'pt-BR'));
+  if(!arr.length)return '<div class="empty">Nenhum contato com telefone público encontrado nesta busca.</div>';
+  const top='<div class="actions" style="margin-bottom:12px"><button class="btn" onclick="pb.addAllSearch()">Adicionar todos aos leads</button><span class="small muted">'+arr.length+' contatos com telefone</span></div>';
   return top+arr.map(x=>{
-    const r=x.r,idx=x.idx,hasPhone=!!(r.phone||r.whatsapp),knownPhone=!hasPhone&&r.has_phone;
-    const conf=r.segment_confidence||'A confirmar';
+    const r=x.r,idx=x.idx,phone=r.whatsapp||r.phone,conf=r.segment_confidence||'CNAE';
     const confClass=(conf==='Alta')?'green':(conf==='Média'?'amber':'');
-    const source=r.source||'Fonte pública';
-    const contact=(r.address?esc(r.address):'')+(r.cnpj?'<br>CNPJ: '+esc(r.cnpj):'')+(r.phone?'<br><b>☎ '+esc(r.phone)+'</b>':'')+(r.whatsapp?'<br><b>WhatsApp: '+esc(r.whatsapp)+'</b>':'')+(r.email?'<br>✉ '+esc(r.email):'')+(r.website?'<br>🌐 '+esc(r.website):'');
+    const contact=(r.address?esc(r.address):'')+(r.cnpj?'<br>CNPJ: '+esc(r.cnpj):'')+'<br><b style="font-size:15px">☎ '+esc(formatPhoneBR(phone))+'</b>'+(r.email?'<br>✉ '+esc(r.email):'');
     const sourceLink=r.source_url?'<a href="'+esc(r.source_url)+'" target="_blank" rel="noopener">ver fonte</a>':'';
-    const phoneBadge=hasPhone?'<span class="badge green">telefone confirmado</span>':knownPhone?'<span class="badge blue">telefone sendo verificado</span>':'<span class="badge">sem telefone</span>';
-    const waBtn=hasPhone?'<button class="btn green" onclick="pb.searchWA('+idx+')">WhatsApp</button>':'';
-    return '<div class="search-result"><div class="titleline"><div><b>'+esc(r.name)+'</b><div class="lead-meta">'+esc(r.niche)+' · '+esc(r.city||'')+' '+esc(r.state||'')+'</div></div><div class="actions">'+phoneBadge+'<span class="badge '+confClass+'">'+esc(conf)+'</span></div></div><div class="lead-meta" style="margin-top:8px">'+contact+'<br>Fonte: '+esc(source)+(sourceLink?' · '+sourceLink:'')+'</div><div class="actions" style="margin-top:10px">'+waBtn+'<button class="btn primary" onclick="pb.addSearch('+idx+')">Adicionar aos leads</button>'+(!hasPhone?'<button class="btn" onclick="pb.contactSearch('+idx+')">Pesquisar contato</button>':'')+'</div></div>';
+    return '<div class="search-result"><div class="titleline"><div><b>'+esc(r.name)+'</b><div class="lead-meta">'+esc(r.niche)+' · '+esc(r.city||'')+' '+esc(r.state||'')+'</div></div><div class="actions"><span class="badge green">telefone confirmado</span><span class="badge '+confClass+'">'+esc(conf)+'</span></div></div><div class="lead-meta" style="margin-top:8px">'+contact+'<br>Fonte: '+esc(r.source||'Base Empresarial + BrasilAPI')+(sourceLink?' · '+sourceLink:'')+'</div><div class="actions" style="margin-top:10px"><button class="btn green" onclick="pb.searchWA('+idx+')">WhatsApp</button><button class="btn primary" onclick="pb.addSearch('+idx+')">Adicionar aos leads</button></div></div>';
   }).join('');
 }
 function osmTagsToLead(el,requestedNiche,city,stateCode){
@@ -521,54 +518,32 @@ function mergeSearchResults(a,b,requestedNiche){
 
 
 
+
 async function searchBusinesses(){
-  const city=$('#s_city').value.trim(),stateCode=$('#s_state').value.trim().toUpperCase(),niche=$('#s_niche').value,radius=Number($('#s_radius').value),st=$('#searchStatus'),btn=$('#searchCompaniesBtn');
+  const city=$('#s_city').value.trim(),stateCode=$('#s_state').value.trim().toUpperCase(),niche=$('#s_niche').value,st=$('#searchStatus'),btn=$('#searchCompaniesBtn');
   if(!city||!stateCode){st.textContent='Informe cidade e UF.';return}
-  if(btn){btn.disabled=true;btn.textContent='Buscando...'}
-  searchResults=[];searchFilter='all';
-  $('#searchResults').innerHTML='<div class="empty">Localizando empresas do segmento...</div>';
-  let osm=[],base=[],errors=[];
-  st.textContent='Consultando empresas ativas...';
-  await Promise.all([
-    browserBusinessSearch(city,stateCode,niche,radius).then(v=>osm=v).catch(e=>errors.push('OSM: '+(e.message||e))),
-    baseEmpSearch(city,stateCode,niche).then(v=>base=v).catch(e=>errors.push('Base CNPJ: '+(e.message||e)))
-  ]);
-  searchResults=mergeSearchResults(osm,base,niche);
-  if(!searchResults.length){
-    st.textContent=errors.length?'Não encontrei resultados agora. '+errors.join(' | '):'Nenhum cadastro encontrado para esse recorte.';
-    $('#searchResults').innerHTML=renderSearchResults();
-    if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
-    return;
-  }
-
-  const found=searchResults.length;
-  st.textContent=found+' empresas localizadas. Os telefones serão preenchidos em segundo plano.';
-  $('#searchResults').innerHTML=renderSearchResults();
-  if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
-
-  autoEnrichContacts(10,24).then(async initial=>{
-    const phones=searchResults.filter(x=>x.phone||x.whatsapp).length;
-    let pending=searchResults.filter(x=>x.cnpj&&x.has_phone&&!x.phone&&!x.whatsapp&&!x._enrichTried).length;
+  if(btn){btn.disabled=true;btn.textContent='Buscando telefones...'}
+  searchResults=[];searchFilter='phone';
+  $('#searchResults').innerHTML='<div class="empty">Buscando empresas com telefone público confirmado...</div>';
+  st.textContent='Consultando empresas da cidade e validando telefones...';
+  try{
+    const base=await baseEmpSearch(city,stateCode,niche);
+    searchResults=(base||[]).filter(r=>r.phone||r.whatsapp);
+    searchResults.sort((a,b)=>confidenceRank(b.segment_confidence)-confidenceRank(a.segment_confidence)||String(a.name).localeCompare(String(b.name),'pt-BR'));
+    const phones=searchResults.length;
     st.textContent=phones
-      ? phones+' contatos com telefone público prontos para WhatsApp'+(pending?' · '+pending+' ainda podem ser verificados':'')+'.'
-      : 'Empresas encontradas. Nenhum telefone público foi confirmado no primeiro lote'+(pending?' · use “Buscar mais telefones” para continuar':'')+'.';
+      ? phones+' contatos com telefone público encontrados. Clique em WhatsApp para preparar a mensagem.'
+      : 'Nenhum telefone público foi encontrado nesta busca.';
     $('#searchResults').innerHTML=renderSearchResults();
-
-    if(pending){
-      await enrichMoreContacts(12,{silent:true,progress:false});
-      const total=searchResults.filter(x=>x.phone||x.whatsapp).length;
-      pending=searchResults.filter(x=>x.cnpj&&x.has_phone&&!x.phone&&!x.whatsapp&&!x._enrichTried).length;
-      st.textContent=total
-        ? total+' contatos com telefone público prontos para WhatsApp'+(pending?' · '+pending+' ainda podem ser verificados':'')+'.'
-        : 'Empresas encontradas. Ainda não foi possível confirmar telefone público neste lote.';
-      $('#searchResults').innerHTML=renderSearchResults();
-    }
-  }).catch(e=>{
-    console.error('enriquecimento em segundo plano',e);
-    st.textContent=found+' empresas localizadas. A verificação automática de telefone falhou; use “Buscar mais telefones” ou “Pesquisar contato”.';
-    $('#searchResults').innerHTML=renderSearchResults();
-  });
+  }catch(e){
+    console.error('Busca de telefones',e);
+    st.textContent='Não foi possível consultar os telefones agora.';
+    $('#searchResults').innerHTML='<div class="empty">A fonte de telefones não respondeu. Tente novamente.</div>';
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Buscar empresas'}
+  }
 }
+
 async function ensureSearchLead(i){
   const r=searchResults[i];if(!r)return null;
   const p=digits(r.phone||r.whatsapp),cnpj=String(r.cnpj||'').trim();
